@@ -17,6 +17,9 @@ import java.net.MalformedURLException;
  * @author reedt
  */
 public class Main extends Application {
+    private static final int PRINTER_WIDTH = 24; // inches
+    private static final int PRINTER_DPI = 4;
+
     public static void main(String[] args) {
         Application.launch(args);
     }
@@ -30,9 +33,10 @@ public class Main extends Application {
 
         Image img = new Image(filePath);
         BufferedImage bufferedImage = SwingFXUtils.fromFXImage(img, null);
-        BufferedImage cmykImage = ImageUtils.rgbToCMYK(bufferedImage);
+        BufferedImage resizedImage = ImageUtils.resizeImage(bufferedImage, Main.PRINTER_WIDTH * Main.PRINTER_DPI, bufferedImage.getHeight());
+        float[][][] cmykAry = ImageUtils.rgbToCMYK(resizedImage);
 
-        ImageView iv = new ImageView(img);
+        ImageView iv = new ImageView(SwingFXUtils.toFXImage(resizedImage, null));
         root.getChildren().add(iv);
         primaryStage.setScene(new Scene(root, 1920, 1080));
         primaryStage.show();

@@ -6,7 +6,6 @@ import java.awt.color.ColorSpace;
 import java.awt.color.ICC_ColorSpace;
 import java.awt.color.ICC_Profile;
 import java.awt.image.*;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 
@@ -49,35 +48,64 @@ public class ImageUtils {
         return img;
     }
 
-//    public static BufferedImage rgbToCMYK(BufferedImage in) {
-//        ColorConvertOp converter = new ColorConvertOp(new CMYKColorSpace(),
-//                new RenderingHints(RenderingHints.KEY_COLOR_RENDERING, RenderingHints.VALUE_COLOR_RENDER_QUALITY));
-//
-//        return converter.filter(in, null);
-//    }
+    /**
+     * Converts a given Image into a BufferedImage
+     *
+     * @param img The Image to be converted
+     * @return The converted BufferedImage
+     */
+    public static BufferedImage toBufferedImage(Image img) {
+        if (img instanceof BufferedImage) {
+            return (BufferedImage) img;
+        }
 
-    public static BufferedImage rgbToCMYK(BufferedImage in) {
+        // Create a buffered image with transparency
+        BufferedImage bimage = new BufferedImage(img.getWidth(null), img.getHeight(null), BufferedImage.TYPE_INT_ARGB);
+
+        // Draw the image on to the buffered image
+        Graphics2D bGr = bimage.createGraphics();
+        bGr.drawImage(img, 0, 0, null);
+        bGr.dispose();
+
+        // Return the buffered image
+        return bimage;
+    }
+
+    public static BufferedImage resizeImage(BufferedImage i, int newWidth, int newHeight) {
+        return toBufferedImage(i.getScaledInstance(newWidth, newHeight, Image.SCALE_DEFAULT));
+    }
+
+    /**
+     * Approximate conversion from RGBA to CMYKA
+     * @param in BufferedImage to convert
+     * @return Float array of [row][col][cmyka] pixel data.
+     */
+    public static float[][][] rgbToCMYK(BufferedImage in) {
         int[][] imageInBytes = intArrayFromBufferedImage(in);
 
-        for (int[] imageInByte : imageInBytes) {
-            for (int pixel : imageInByte) {
-                int a = (pixel >> 24) & 0xff;
-                int r = (pixel & (0xff << 16)) >> 16;
-                int g = (pixel & (0xff << 8)) >> 8;
-                int b = pixel & 0xff;
+        float[][][] cmykImage = new float[imageInBytes.length][imageInBytes[0].length][5];
+
+        for (int i = 0; i < imageInBytes.length; i++) {
+            for (int j = 0; j < imageInBytes[i].length; j++) {
+                int a = (imageInBytes[i][j] >> 24) & 0xff;
+                int r = (imageInBytes[i][j] & (0xff << 16)) >> 16;
+                int g = (imageInBytes[i][j] & (0xff << 8)) >> 8;
+                int b = imageInBytes[i][j] & 0xff;
 
                 try {
                     // for CMYK alpha
-                    float alpha = (float)a / 255;
-                    float[] cmyk = rgbToCmyk((float) r / 255, (float)g / 255, (float)b / 255, (float)a / 255);
-                    System.out.println("RGBA: (" + r + ", " + g + ", " + b + ", " + a + ") "+ "CMYK: (" + cmyk[0] + ", " + cmyk[1] + ", " + cmyk[2] + ", " + cmyk[3] + ")");
+                    float alpha = (float) a / 255;
+                    float[] cmyk = rgbToCmyk((float) r / 255, (float) g / 255, (float) b / 255, (float) a / 255);
+                    System.out.println("RGBA: (" + r + ", " + g + ", " + b + ", " + a + ") " + "CMYK: (" + cmyk[0] + ", " + cmyk[1] + ", " + cmyk[2] + ", " + cmyk[3] + ")");
+
+                    cmykImage[i][j] = new float[]{cmyk[0], cmyk[1], cmyk[2], cmyk[3], alpha};
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
             }
         }
 
-        return null;
+        return cmykImage;
     }
 
     private static int[][] intArrayFromBufferedImage(BufferedImage image) {
