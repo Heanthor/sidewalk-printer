@@ -66,10 +66,11 @@ public class ImageUtils {
                 int g = (pixel & (0xff << 8)) >> 8;
                 int b = pixel & 0xff;
 
-
                 try {
+                    // for CMYK alpha
+                    float alpha = (float)a / 255;
                     float[] cmyk = rgbToCmyk((float) r / 255, (float)g / 255, (float)b / 255, (float)a / 255);
-                    System.out.println("RGB: (" + r + ", " + g + ", " + b + ") "+ "CMYK: (" + cmyk[0] + ", " + cmyk[1] + ", " + cmyk[2] + ", " + cmyk[3] + ")");
+                    System.out.println("RGBA: (" + r + ", " + g + ", " + b + ", " + a + ") "+ "CMYK: (" + cmyk[0] + ", " + cmyk[1] + ", " + cmyk[2] + ", " + cmyk[3] + ")");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -89,12 +90,7 @@ public class ImageUtils {
 
         if (hasAlphaChannel) {
             for (int pixel = 0, row = 0, col = 0; pixel < pixels.length; pixel++) {
-                int argb = 0;
-                argb += ((pixels[pixel] & 0xff) << 24); // alpha
-                argb += (pixels[pixel + 1] & 0xff); // blue
-                argb += ((pixels[pixel + 2] & 0xff) << 8); // green
-                argb += ((pixels[pixel + 3] & 0xff) << 16); // red
-                result[row][col] = argb;
+                result[row][col] = pixels[pixel];
                 col++;
 
                 if (col == width) {
