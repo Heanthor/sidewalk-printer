@@ -8,6 +8,7 @@ import java.awt.color.ICC_Profile;
 import java.awt.image.*;
 import java.io.File;
 import java.io.IOException;
+import java.util.HashMap;
 
 /**
  * @author reedt
@@ -77,87 +78,210 @@ public class ImageUtils {
 
     /**
      * Approximate conversion from RGBA to CMYKA
+     *
      * @param in BufferedImage to convert
      * @return Float array of [row][col][cmyka] pixel data.
      */
     public static float[][][] rgbToCMYK(BufferedImage in) {
-        int[][] imageInBytes = intArrayFromBufferedImage(in);
+        ColorConverter cc = new ColorConverter();
 
-        float[][][] cmykImage = new float[imageInBytes.length][imageInBytes[0].length][5];
+        return cc.rgbToCMYK(in);
+    }
 
-        for (int i = 0; i < imageInBytes.length; i++) {
-            for (int j = 0; j < imageInBytes[i].length; j++) {
-                int a = (imageInBytes[i][j] >> 24) & 0xff;
-                int r = (imageInBytes[i][j] & (0xff << 16)) >> 16;
-                int g = (imageInBytes[i][j] & (0xff << 8)) >> 8;
-                int b = imageInBytes[i][j] & 0xff;
 
-                try {
+    /**
+     * Convert between two color profiles
+     */
+    private static class ColorConverter {
+        private HashMap<RGBColor, CMYKColor> cache = new HashMap<>();
+
+        private float[][][] rgbToCMYK(BufferedImage in) {
+            int[][] imageInBytes = intArrayFromBufferedImage(in);
+
+            float[][][] cmykImage = new float[imageInBytes.length][imageInBytes[0].length][5];
+
+            for (int i = 0; i < imageInBytes.length; i++) {
+                for (int j = 0; j < imageInBytes[i].length; j++) {
+                    int a = (imageInBytes[i][j] >> 24) & 0xff;
+                    int r = (imageInBytes[i][j] & (0xff << 16)) >> 16;
+                    int g = (imageInBytes[i][j] & (0xff << 8)) >> 8;
+                    int b = imageInBytes[i][j] & 0xff;
+
                     // for CMYK alpha
                     float alpha = (float) a / 255;
-                    float[] cmyk = rgbToCmyk((float) r / 255, (float) g / 255, (float) b / 255, (float) a / 255);
-                    System.out.println("RGBA: (" + r + ", " + g + ", " + b + ", " + a + ") " + "CMYK: (" + cmyk[0] + ", " + cmyk[1] + ", " + cmyk[2] + ", " + cmyk[3] + ")");
 
-                    cmykImage[i][j] = new float[]{cmyk[0], cmyk[1], cmyk[2], cmyk[3], alpha};
-                } catch (IOException e) {
-                    e.printStackTrace();
+                    RGBColor tempRGB = new RGBColor(r, g, b, a);
+
+                    // check cache before converting
+                    if (cache.containsKey(tempRGB)) {
+                        CMYKColor tempCMYK = cache.get(tempRGB);
+                        float[] temp = tempCMYK.getCMYKA();
+
+                        cmykImage[i][j] = new float[]{temp[0], temp[1], temp[2], temp[3], alpha};
+                        System.out.println("Use cache for " + tempRGB.toString());
+                    } else {
+                        try {
+                            float[] cmyk = rgbToCmyk((float) r / 255, (float) g / 255, (float) b / 255, (float) a / 255);
+
+                            cmykImage[i][j] = new float[]{cmyk[0], cmyk[1], cmyk[2], cmyk[3], alpha};
+                            CMYKColor cmykColor = new CMYKColor(cmyk[0], cmyk[1], cmyk[2], cmyk[3], alpha);
+                            cache.put(tempRGB, cmykColor);
+
+                            System.out.println("Convert " + tempRGB.toString() + " " + cmykColor.toString());
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
                 }
             }
+
+            return cmykImage;
         }
 
-        return cmykImage;
+        private int[][] intArrayFromBufferedImage(BufferedImage image) {
+            final int[] pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+            final int width = image.getWidth();
+            final int height = image.getHeight();
+            final boolean hasAlphaChannel = image.getAlphaRaster() != null;
+
+            int[][] result = new int[height][width];
+
+            if (hasAlphaChannel) {
+                for (int pixel = 0, row = 0, col = 0; pixel < pixels.length; pixel++) {
+                    result[row][col] = pixels[pixel];
+                    col++;
+
+                    if (col == width) {
+                        col = 0;
+                        row++;
+                    }
+                }
+            } else {
+                for (int pixel = 0, row = 0, col = 0; pixel < pixels.length; pixel++) {
+                    int argb = 0;
+                    argb += -16777216; // 255 alpha
+                    argb += (pixels[pixel] & 0xff); // blue
+                    argb += ((pixels[pixel] >> 8) & 0xff) << 8; // green
+                    argb += ((pixels[pixel] >> 16) & 0xff) << 16; // red
+                    result[row][col] = argb;
+                    col++;
+
+                    if (col == width) {
+                        col = 0;
+                        row++;
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        private float[] rgbToCmyk(float... rgb) throws IOException {
+            String path = "C:\\Users\\reedt\\Dropbox\\IntelliJ Git\\sidewalk-printer\\resources\\icc_profiles\\USWebCoatedSWOP.icc";
+
+            if (rgb.length != 4) {
+                throw new IllegalArgumentException("Need RGBA");
+            }
+
+            ColorSpace csrgb = ColorSpace.getInstance(ColorSpace.CS_sRGB);
+            //System.out.println("Min: " + csrgb.getMinValue(0) + ", max: " + csrgb.getMaxValue(0));
+            float[] ciexyz = csrgb.toCIEXYZ(rgb);
+            ColorSpace instance = new ICC_ColorSpace(ICC_Profile.getInstance(path));
+
+            return instance.fromCIEXYZ(ciexyz);
+        }
     }
 
-    private static int[][] intArrayFromBufferedImage(BufferedImage image) {
-        final int[] pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
-        final int width = image.getWidth();
-        final int height = image.getHeight();
-        final boolean hasAlphaChannel = image.getAlphaRaster() != null;
+    /**
+     * Encapsulate RBG color + alpha
+     */
+    private static class RGBColor {
+        private int r;
+        private int g;
+        private int b;
+        private int a;
 
-        int[][] result = new int[height][width];
-
-        if (hasAlphaChannel) {
-            for (int pixel = 0, row = 0, col = 0; pixel < pixels.length; pixel++) {
-                result[row][col] = pixels[pixel];
-                col++;
-
-                if (col == width) {
-                    col = 0;
-                    row++;
-                }
-            }
-        } else {
-            for (int pixel = 0, row = 0, col = 0; pixel < pixels.length; pixel++) {
-                int argb = 0;
-                argb += -16777216; // 255 alpha
-                argb += (pixels[pixel] & 0xff); // blue
-                argb += ((pixels[pixel] >> 8) & 0xff) << 8; // green
-                argb += ((pixels[pixel] >> 16) & 0xff) << 16; // red
-                result[row][col] = argb;
-                col++;
-
-                if (col == width) {
-                    col = 0;
-                    row++;
-                }
-            }
+        RGBColor(int r, int g, int b, int a) {
+            this.r = r;
+            this.g = g;
+            this.b = b;
+            this.a = a;
         }
 
-        return result;
+        public int[] getRGBA() {
+            return new int[]{r, g, b, a};
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+
+            RGBColor rgbColor = (RGBColor) o;
+
+            return r == rgbColor.r && g == rgbColor.g && b == rgbColor.b && a == rgbColor.a;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = r;
+            result = 31 * result + g;
+            result = 31 * result + b;
+            result = 31 * result + a;
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            return "RGBA: (" + r + ", " + g + ", " + b + ", " + a + ")";
+        }
     }
 
-    private static float[] rgbToCmyk(float... rgb) throws IOException {
-        String path = "C:\\Users\\reedt\\Dropbox\\IntelliJ Git\\sidewalk-printer\\resources\\icc_profiles\\USWebCoatedSWOP.icc";
+    /**
+     * Encapsulate CMYK color + alpha
+     */
+    private static class CMYKColor {
+        private float c;
+        private float m;
+        private float y;
+        private float k;
+        private float a;
 
-        if (rgb.length != 4) {
-            throw new IllegalArgumentException("Need RGBA");
+        CMYKColor(float c, float m, float y, float k, float a) {
+            this.c = c;
+            this.m = m;
+            this.y = y;
+            this.k = k;
+            this.a = a;
         }
 
-        ColorSpace csrgb = ColorSpace.getInstance(ColorSpace.CS_sRGB);
-        //System.out.println("Min: " + csrgb.getMinValue(0) + ", max: " + csrgb.getMaxValue(0));
-        float[] ciexyz = csrgb.toCIEXYZ(rgb);
-        ColorSpace instance = new ICC_ColorSpace(ICC_Profile.getInstance(path));
+        float[] getCMYKA() {
+            return new float[]{c, m, y, k, a};
+        }
 
-        return instance.fromCIEXYZ(ciexyz);
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+
+            CMYKColor cmykColor = (CMYKColor) o;
+
+            return c == cmykColor.c && m == cmykColor.m && y == cmykColor.y && k == cmykColor.k && a == cmykColor.a;
+        }
+
+        @Override
+        public int hashCode() {
+            float result = c;
+            result = 31 * result + m;
+            result = 31 * result + y;
+            result = 31 * result + k;
+            result = 31 * result + a;
+            return (int) result;
+        }
+
+        @Override
+        public String toString() {
+            return "CMYK: (" + c + ", " + m + ", " + y + ", " + k + ", " + a + ")";
+        }
     }
 }
