@@ -83,9 +83,14 @@ public class ImageUtils {
      * @return Float array of [row][col][cmyka] pixel data.
      */
     public static float[][][] rgbToCMYK(BufferedImage in) {
+        long start = System.currentTimeMillis();
         ColorConverter cc = new ColorConverter();
 
-        return cc.rgbToCMYK(in);
+        float[][][] result = cc.rgbToCMYK(in);
+        long dur = System.currentTimeMillis() - start;
+
+        System.out.println("Converted in " + dur + " milis.");
+        return result;
     }
 
 
